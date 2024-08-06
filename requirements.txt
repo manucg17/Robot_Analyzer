@@ -1,4 +1,5 @@
 cryptography==42.0.5
 Flask==3.0.3
 Pygments==2.17.2
-Werkzeug==3.0.2
+robotframework==7.0.1
+Werkzeug==3.0.3
