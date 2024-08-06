@@ -24,11 +24,11 @@
     style="background-image: url('{{ url_for('static', filename='robot5.png') }}');">
         <div class="absolute bg-black opacity-10 inset-0 z-0"></div>
         <div class="absolute top-2 left-2 p-4">
-            <img src="{{ url_for('static', filename='ribbon-og.png') }}" alt="DRS Logo" class="h-12">
+            <img src="{{ url_for('static', filename='ribbon-og.png') }}" alt="Ribbon Logo" class="h-12">
         </div>
-        <div class="sm:max-w-lg w-full p-8 rounded-xl z-10" style="background-color: rgba(229, 231, 235, 0.75);">
+        <div class="sm:max-w-lg w-full p-10 rounded-xl z-10" style="background-color: rgba(200, 192, 181, 0.594);">
             <div class="text-center">
-                <h2 class="mt-3 text-5xl font-bold text-gray-1000">
+                <h2 class="mt-3 text-5xl font-bold text-custom-gray font-ocra">
                     Script Analyzer
                 </h2>
                 <p class="mt-2 text-3x1 font-bold text-gray-1000">Robot Framework Script Analyzer</p>
@@ -48,7 +48,7 @@
                                     <img class="has-mask h-36 object-center ml-2" src="{{ url_for('static', filename='robot-file-upload.png') }}" alt="Robot file upload image">
                                 </div>
                                 <p class="pointer-none text-gray-700 mt-4" id="fileLabel">
-                                    <a href="#" id="fileLink" class="text-blue-600 hover:underline">Select the .robot File</a>
+                                    <a href="#" id="fileLink" class="text-blue-800 font-bold hover:underline">Select the .robot File</a>
                                 </p>
                             </div>
                             <input id="file" name="file" type="file" class="hidden" accept=".robot" required>
