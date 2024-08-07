@@ -79,10 +79,10 @@ class ScriptAnalyzer:
     def add_summary_to_log(self):
         # Add errors to the log file
         with open(self.log_file, 'a') as log_file:
-            log_file.write(f'Script Analysis of {self.script_path.stem}.robot started.\n\n')
+            log_file.write(f'\nScript Analysis of {self.script_path.stem}.robot Started:\n\n')
             for error in self.errors:
-                log_file.write(f"- {error}\n")
-            log_file.write(f"\nScript Analysis of {self.script_path.stem}.robot completed.")    
+                log_file.write(f"INFO --{error}\n")
+            log_file.write(f"\nScript Analysis of {self.script_path.stem}.robot Complete.")    
         summary = "\n\n----------------------------------------\n"
         issues_found = any(count > 0 for count in self.counts.values())
         if issues_found:
@@ -105,79 +105,70 @@ class ScriptAnalyzer:
         suite = TestSuiteBuilder().build(self.script_path)
         self.errors = []
 
-        def log_and_record_error(message):
+        def log_and_record_error(message, count_key):
             self.errors.append(message)
-            logging.error(message)
+            self.counts[count_key] += 1
 
         def check_naming_convention(name, type_):
+            short_name = name.split(':')[0].strip()
             if not re.match(r'^[A-Z][a-zA-Z0-9 ]*$', name):
-                log_and_record_error(f"{type_} '{name}' should follow naming conventions (Title Case)")
+                log_and_record_error(f' <{short_name}> :: {type_} should follow Naming Conventions (Title Case)', 'variable_naming')
 
         def check_documentation(doc, name, type_):
+            short_name = name.split(':')[0].strip()
             if not doc:
-                log_and_record_error(f"{type_} '{name}' lacks documentation")
+                log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', 'missing_documentation')
 
         if not suite.resource:
-            self.counts['missing_settings'] += 1
-            log_and_record_error("Missing *** Settings *** section")
+            log_and_record_error(" <Settings> :: Missing *** Settings *** section in the Test Suite", 'missing_settings')
         else:
             if not suite.resource.imports:
-                self.counts['missing_imports'] += 1
-                log_and_record_error("Missing import statements in *** Settings *** section")
+                log_and_record_error(" <Settings> :: Missing Import statements in *** Settings *** section", 'missing_imports')
 
             libraries = [imp for imp in suite.resource.imports if imp.type.lower() == 'library']
             resources = [imp for imp in suite.resource.imports if imp.type.lower() == 'resource']
             if not libraries:
-                self.counts['missing_imports'] += 1
-                log_and_record_error("Missing Library import in *** Settings *** section")
+                log_and_record_error(" <Settings> :: Missing Library import in *** Settings *** section", 'missing_imports')
             if not resources:
-                self.counts['missing_imports'] += 1
-                log_and_record_error("Missing Resource import in *** Settings *** section")
+                log_and_record_error(" <Settings> :: Missing Resource import in *** Settings *** section", 'missing_imports')
 
             if not suite.setup:
-                self.counts['missing_suite_setup'] += 1
-                log_and_record_error("Missing Suite Setup in *** Settings *** section")
+                log_and_record_error(" <Settings> :: Missing Suite Setup in *** Settings *** section", 'missing_suite_setup')
             if not suite.teardown:
-                self.counts['missing_suite_teardown'] += 1
-                log_and_record_error("Missing Suite Teardown in *** Settings *** section")
+                log_and_record_error(" <Settings> :: Missing Suite Teardown in *** Settings *** section", 'missing_suite_teardown')
 
         if not suite.tests:
-            self.counts['missing_tests'] += 1
-            log_and_record_error("Missing *** Test Cases *** section")
+            log_and_record_error(" <TestCase> :: Missing *** Test Cases *** section in the test suite", 'missing_tests')
 
         if not suite.doc:
-            self.counts['missing_documentation'] += 1
-            log_and_record_error("Test suite lacks documentation")
+            log_and_record_error(" <Settings> :: Missing Documentation in *** Settings *** section", 'missing_documentation')
 
         for test in suite.tests:
             check_documentation(test.doc, test.name, "Test case")
             check_naming_convention(test.name, "Test case")
+            test_name_short = test.name.split(':')[0].strip()
             if not test.setup:
-                self.counts['missing_setup'] += 1
-                log_and_record_error(f"Test case '{test.name}' lacks a setup step")
+                log_and_record_error(f' <{test_name_short}> :: Test case lacks a setup step', 'missing_setup')
             if not test.teardown:
-                self.counts['missing_teardown'] += 1
-                log_and_record_error(f"Test case '{test.name}' lacks a teardown step")
+                log_and_record_error(f' <{test_name_short}> :: Test case lacks a teardown step', 'missing_teardown')
             if not test.tags:
-                self.counts['missing_tags'] += 1
-                log_and_record_error(f"Test case '{test.name}' lacks tags")
+                log_and_record_error(f' <{test_name_short}> :: Test case lacks tags', 'missing_tags')
 
         for keyword in suite.resource.keywords:
             check_documentation(keyword.doc, keyword.name, "Keyword")
             if not keyword.doc:
-                self.counts['keyword_documentation'] += 1
+                log_and_record_error(f' <{keyword.name}> :: Keyword lacks documentation', 'keyword_documentation')
 
         for var in suite.resource.variables:
             if not re.match(r'^[A-Z_][A-Z0-9_]*$', var.name):
-                self.counts['variable_naming'] += 1
-                log_and_record_error(f"Variable '{var.name}' should be uppercase with underscores (e.g., '${{VAR_NAME}}')")
+                log_and_record_error(f' <{var.name}> :: Variable should be uppercase with underscores (e.g., "${{VAR_NAME}}")', 'variable_naming')
 
         if self.errors:
             logging.info("Errors found:")
             for error in self.errors:
-                logging.info(f"- {error}")
+                logging.info(f'INFO - {error}')
         else:
-            logging.info("No errors found. The script follows the coding standards.")
+            logging.info("No Errors Detected. The script follows the Coding Standards.")
 
     def send_email(self):
         # Create a multipart message
@@ -193,44 +184,40 @@ class ScriptAnalyzer:
 
         # Add body to email
         body = f"Hello {recipient_user},<br><br>"
-        body += "Please find attached the log file for the script analysis.<br>"
-        body += "<b><font size='4.5' color='#000000'>File Type: </font></b> .robot File<br><br>"
-        body += "<u><b><font size='4.5' color='#000000'>Summary:</font></b></u><br><br>"
+        body += "<b><font size='4.5' color='#000000'>File Type: </font></b> .robot<br><br>"
+        body += "<u><b><font size='4.5' color='#000000'>Summary:</font></b></u><br>"
 
         # Create a table for counts with added CSS for better styling
         table = "<table style='border-collapse: collapse; border: 4px solid black; width: 50%; background-color: #f2f2f2;'>"
         table += "<tr style='background-color: #4CAF50; color: white;'>"
-        table += "<th style='border: 1px solid black; padding: 8px;'>Check</th>"
-        table += "<th style='border: 1px solid black; padding: 8px;'>Count</th>"
+        table += "<th style='border: 3px solid black; padding: 15px;'>Check</th>"
+        table += "<th style='border: 3px solid black; padding: 15px;'>Count</th>"
         table += "</tr>"
 
         # Define a dictionary to map the check names to more understandable terms
         check_names = {
             'missing_settings': 'Settings Check',
-            'missing_imports': 'Imports Check',
-            'missing_suite_setup': 'Suite Setup Check',
-            'missing_suite_teardown': 'Teardown Check',
+            'missing_imports': 'Settings: Imports Check',
+            'missing_suite_setup': 'Settings: Suite Setup Check',
+            'missing_suite_teardown': 'Settings: Teardown Check',
             'missing_tests': 'Testcase Check',
-            'missing_documentation': 'Documentation Check',
-            'missing_tags': 'Tags Check',
-            'keyword_documentation': 'Keyword Check',
-            'variable_naming': 'Variable Naming Check',
-            'missing_setup': 'Testcase Setup Check',
-            'missing_teardown': 'Testcase Teardown Check',
-
+            'missing_documentation': 'TestCase: Documentation Check',
+            'missing_tags': 'TestCase: Tags Check',
+            'missing_setup': 'TestCase: Setup Check',
+            'missing_teardown': 'TestCase: Teardown Check',
+            'variable_naming': 'TestCase: Variable Naming Check',
+            'keyword_documentation': 'Keyword Documentation Check'
         }
+        
         for check, count in self.counts.items():
             if count > 0:
-                table += "<tr>"
-                table += f"<td style='border: 1px solid black; padding: 8px;'>{check}</td>"
-                table += f"<td style='border: 1px solid black; padding: 8px;'>{count}</td>"
-                table += "</tr>"
-
+                check_name = check_names.get(check, check)
+                table += f"<tr><td style='border: 3px solid black; padding: 15px; text-align: left;'>{check_name}</td><td style='border: 3px solid black; padding: 15px; text-align: center;'>{count}</td></tr>"
         table += "</table><br>"
 
         # Append the table to the body
         body += table
-        body += "<br>Best regards,<br>Script Analyzer Team"
+        body += "<br>Please Refer to the Attached Log for the detailed Analysis<br><br>Regards<br>ScriptAnalyzer-QA<br>"
 
         # Attach the body with the msg instance
         message.attach(MIMEText(body, 'html'))

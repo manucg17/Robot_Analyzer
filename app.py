@@ -65,6 +65,21 @@ def upload_file():
             analyzer = ScriptAnalyzer(file_path, recipient_email, encrypted_sender_email, encrypted_sender_password, encryption_key)
             try:
                 analyzer.run_analysis()
+                # Remove all handlers from the logger
+                for handler in logging.root.handlers[:]:
+                    logging.root.removeHandler(handler)
+                
+                # Clear the uploads folder
+                try:
+                    if os.path.exists(UPLOAD_FOLDER):
+                        shutil.rmtree(UPLOAD_FOLDER)
+                        os.makedirs(UPLOAD_FOLDER, mode=0o777)  # Recreate the folder
+                        logging.info('Uploads folder cleared and recreated.')
+                    else:
+                        logging.warning('Uploads folder does not exist.')
+                except Exception as e:
+                    logging.error(f'Error clearing the uploads folder: {str(e)}')
+
                 logging.info('File successfully uploaded, analyzed, and email sent.')
                 return jsonify({'message': 'File successfully uploaded and analyzed. Email sent successfully', 'isError': False}), 200
             except Exception as e:
