@@ -25,6 +25,7 @@ class ScriptAnalyzer:
         self.log_file = self.get_log_file_name()
         self.encryption_key = encryption_key
         self.counts = {
+            'human_error': 0,
             'missing_settings': 0,
             'missing_imports': 0,
             'missing_suite_setup': 0,
@@ -37,6 +38,7 @@ class ScriptAnalyzer:
             'missing_setup': 0,
             'missing_teardown': 0,
         }
+        self.test_case_errors = {}
         logging.basicConfig(filename=self.log_file, level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -79,45 +81,63 @@ class ScriptAnalyzer:
     def add_summary_to_log(self):
         # Add errors to the log file
         with open(self.log_file, 'a') as log_file:
-            log_file.write(f'\nScript Analysis of {self.script_path.stem}.robot Started:\n\n')
+            log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
+            log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
+            log_file.write(f'\nScript Analysis of <{self.script_path.stem}.robot> Started\n\n')
             for error in self.errors:
                 log_file.write(f"INFO --{error}\n")
-            log_file.write(f"\nScript Analysis of {self.script_path.stem}.robot Complete.")    
-        summary = "\n\n----------------------------------------\n"
+            log_file.write(f"\nScript Analysis of <{self.script_path.stem}.robot> has been Completed\n\n")
+            log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
+            log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
+            log_file.write(f"\n-----------------------------------------\n        Total Errors Identified         \n-----------------------------------------\n")
+            for test_case, error_count in self.test_case_errors.items():
+                log_file.write(f"   <{test_case}> :: Error Count - {error_count}\n")
+            
+        summary = "-----------------------------------------\n"
+        summary += "\n------------------------------------------------------------------------------------------------------------\n"
+        summary += "------------------------------------------------------------------------------------------------------------\n"
+        summary += "\n-----------------------------------------\n"
         issues_found = any(count > 0 for count in self.counts.values())
         if issues_found:
-            summary += "\n    Summary of Issues observed:\n"
-            summary += "-------------------------------------\n"
-            summary += "\tCheck\t\t\t\t\t Count\n"
-            summary += "-------------------------------------\n"
+            summary += "       Summary of Issues observed       \n"
+            summary += "-----------------------------------------\n"
+            summary += "	Check					    Count\n"
             
             for check, count in self.counts.items():
                 if count > 0:
-                    summary += f" {check.ljust(30)}{count}\n"
+                    summary += f" {check.ljust(33)}{count}\n"
         else:
             summary += " No Issues observed after Analyzing the Script\n"
 
-        summary += "----------------------------------------\n"
+        summary += "-----------------------------------------\n"
+        summary += "\n------------------------------------------------------------------------------------------------------------"
+        summary += "\n------------------------------------------------------------------------------------------------------------\n"
         with open(self.log_file, 'a') as log_file:
             log_file.write(summary)
 
     def analyze_robot_file(self):
         suite = TestSuiteBuilder().build(self.script_path)
         self.errors = []
+        test_case_names = {}
+        self.test_case_errors = {}
 
-        def log_and_record_error(message, count_key):
+        def log_and_record_error(message, count_key, test_case_name=None):
             self.errors.append(message)
             self.counts[count_key] += 1
+            if test_case_name:
+                if test_case_name not in self.test_case_errors:
+                    self.test_case_errors[test_case_name] = 0
+                self.test_case_errors[test_case_name] += 1
 
         def check_naming_convention(name, type_):
             short_name = name.split(':')[0].strip()
             if not re.match(r'^[A-Z][a-zA-Z0-9 ]*$', name):
-                log_and_record_error(f' <{short_name}> :: {type_} should follow Naming Conventions (Title Case)', 'variable_naming')
+                log_and_record_error(f' <{short_name}> :: {type_} should follow Naming Conventions (Title Case)', 'variable_naming', short_name)
 
         def check_documentation(doc, name, type_):
             short_name = name.split(':')[0].strip()
             if not doc:
-                log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', 'missing_documentation')
+                log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', 'missing_documentation', short_name)
 
         if not suite.resource:
             log_and_record_error(" <Settings> :: Missing *** Settings *** section in the Test Suite", 'missing_settings')
@@ -144,15 +164,22 @@ class ScriptAnalyzer:
             log_and_record_error(" <Settings> :: Missing Documentation in *** Settings *** section", 'missing_documentation')
 
         for test in suite.tests:
+            short_name = test.name.split(':')[0].strip()
+            if short_name not in test_case_names:
+                test_case_names[short_name] = 0
+            test_case_names[short_name] += 1
+
+            if test_case_names[short_name] > 1:
+                log_and_record_error(f' <HUMAN ERROR> :: <{short_name}> is Repeated more than once in the Script, Please Verify!', 'human_error', short_name)
+
             check_documentation(test.doc, test.name, "Test case")
             check_naming_convention(test.name, "Test case")
-            test_name_short = test.name.split(':')[0].strip()
             if not test.setup:
-                log_and_record_error(f' <{test_name_short}> :: Test case lacks a setup step', 'missing_setup')
+                log_and_record_error(f' <{short_name}> :: Test case lacks a setup step', 'missing_setup', short_name)
             if not test.teardown:
-                log_and_record_error(f' <{test_name_short}> :: Test case lacks a teardown step', 'missing_teardown')
+                log_and_record_error(f' <{short_name}> :: Test case lacks a teardown step', 'missing_teardown', short_name)
             if not test.tags:
-                log_and_record_error(f' <{test_name_short}> :: Test case lacks tags', 'missing_tags')
+                log_and_record_error(f' <{short_name}> :: Test case lacks tags', 'missing_tags', short_name)
 
         for keyword in suite.resource.keywords:
             check_documentation(keyword.doc, keyword.name, "Keyword")
@@ -167,6 +194,8 @@ class ScriptAnalyzer:
             logging.info("Errors found:")
             for error in self.errors:
                 logging.info(f'INFO - {error}')
+            for test_case, error_count in self.test_case_errors.items():
+                logging.info(f'INFO -- <{test_case}> :: Total Errors - {error_count}')
         else:
             logging.info("No Errors Detected. The script follows the Coding Standards.")
 
@@ -196,6 +225,7 @@ class ScriptAnalyzer:
 
         # Define a dictionary to map the check names to more understandable terms
         check_names = {
+            'human_error': 'Human Error Check',
             'missing_settings': 'Settings Check',
             'missing_imports': 'Settings: Imports Check',
             'missing_suite_setup': 'Settings: Suite Setup Check',
