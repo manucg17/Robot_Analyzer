@@ -89,19 +89,36 @@ class ScriptAnalyzer:
             log_file.write(f"\nScript Analysis of <{self.script_path.stem}.robot> has been Completed\n\n")
             log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
             log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
-            log_file.write(f"\n-----------------------------------------\n        Total Errors Identified         \n-----------------------------------------\n")
+            log_file.write(f"\n---------------------------------------------\n           Total Errors Identified\n---------------------------------------------\n")
+
+            # Initialize aggregated counts
+            keywords_issue_count = 0
+            variable_naming_issue_count = 0
+
+            # Sum up keyword issues and variable naming issues
             for test_case, error_count in self.test_case_errors.items():
-                log_file.write(f"   <{test_case}> :: Error Count - {error_count}\n")
+                if test_case in ["Dependent Test Case", "Unconfigure"]:
+                    keywords_issue_count += error_count
+                elif re.match(r'\$\{[a-zA-Z_]+\}', test_case):
+                    variable_naming_issue_count += error_count
+                else:
+                    log_file.write(f"   <{test_case}> :: Error Count - {error_count}\n")
             
-        summary = "-----------------------------------------\n"
+            # Add the aggregated counts to the log
+            if keywords_issue_count > 0:
+                log_file.write(f"   Keywords_Issue :: Error Count - {keywords_issue_count}\n")
+            if variable_naming_issue_count > 0:
+                log_file.write(f"   Variable_Naming_Issue :: Error Count - {variable_naming_issue_count}\n")
+
+        summary = "---------------------------------------------\n"
         summary += "\n------------------------------------------------------------------------------------------------------------\n"
         summary += "------------------------------------------------------------------------------------------------------------\n"
-        summary += "\n-----------------------------------------\n"
+        summary += "\n---------------------------------------------\n"
         issues_found = any(count > 0 for count in self.counts.values())
         if issues_found:
-            summary += "       Summary of Issues observed       \n"
-            summary += "-----------------------------------------\n"
-            summary += "	Check					    Count\n"
+            summary += "         Summary of Issues observed       \n"
+            summary += "---------------------------------------------\n"
+            summary += "	   Check                   Count\n"
             
             for check, count in self.counts.items():
                 if count > 0:
@@ -109,11 +126,12 @@ class ScriptAnalyzer:
         else:
             summary += " No Issues observed after Analyzing the Script\n"
 
-        summary += "-----------------------------------------\n"
+        summary += "---------------------------------------------\n"
         summary += "\n------------------------------------------------------------------------------------------------------------"
         summary += "\n------------------------------------------------------------------------------------------------------------\n"
         with open(self.log_file, 'a') as log_file:
             log_file.write(summary)
+
 
     def analyze_robot_file(self):
         suite = TestSuiteBuilder().build(self.script_path)
@@ -131,14 +149,18 @@ class ScriptAnalyzer:
 
         def check_naming_convention(name, type_):
             short_name = name.split(':')[0].strip()
-            if not re.match(r'^[A-Z][a-zA-Z0-9 ]*$', name):
+            if type_ == "Variable" and not re.match(r'^\${[A-Z_][A-Z0-9_]*}$', name):
+                log_and_record_error(f' <{short_name}> :: {type_} should be uppercase with underscores (e.g., "${{VAR_NAME}}")', 'variable_naming', short_name)
+            elif type_ != "Variable" and not re.match(r'^[A-Z][a-zA-Z0-9 ]*$', name):
                 log_and_record_error(f' <{short_name}> :: {type_} should follow Naming Conventions (Title Case)', 'variable_naming', short_name)
 
         def check_documentation(doc, name, type_):
             short_name = name.split(':')[0].strip()
             if not doc:
-                log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', 'missing_documentation', short_name)
+                error_type = 'keyword_documentation' if type_ == "Keyword" else 'missing_documentation'
+                log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', error_type, short_name)
 
+        # Checking if the resource is available
         if not suite.resource:
             log_and_record_error(" <Settings> :: Missing *** Settings *** section in the Test Suite", 'missing_settings')
         else:
@@ -181,23 +203,14 @@ class ScriptAnalyzer:
             if not test.tags:
                 log_and_record_error(f' <{short_name}> :: Test case lacks tags', 'missing_tags', short_name)
 
+        # Processing keywords with documentation and naming convention checks
         for keyword in suite.resource.keywords:
             check_documentation(keyword.doc, keyword.name, "Keyword")
-            if not keyword.doc:
-                log_and_record_error(f' <{keyword.name}> :: Keyword lacks documentation', 'keyword_documentation')
+            check_naming_convention(keyword.name, "Keyword")
 
+        # Processing variables and checking naming convention
         for var in suite.resource.variables:
-            if not re.match(r'^[A-Z_][A-Z0-9_]*$', var.name):
-                log_and_record_error(f' <{var.name}> :: Variable should be uppercase with underscores (e.g., "${{VAR_NAME}}")', 'variable_naming')
-
-        if self.errors:
-            logging.info("Errors found:")
-            for error in self.errors:
-                logging.info(f'INFO - {error}')
-            for test_case, error_count in self.test_case_errors.items():
-                logging.info(f'INFO -- <{test_case}> :: Total Errors - {error_count}')
-        else:
-            logging.info("No Errors Detected. The script follows the Coding Standards.")
+            check_naming_convention(var.name, "Variable")
 
     def send_email(self):
         # Create a multipart message
@@ -236,7 +249,7 @@ class ScriptAnalyzer:
             'missing_setup': 'TestCase: Setup Check',
             'missing_teardown': 'TestCase: Teardown Check',
             'variable_naming': 'TestCase: Variable Naming Check',
-            'keyword_documentation': 'Keyword Documentation Check'
+            'keyword_documentation': 'Keywords: Documentation Check'
         }
         
         for check, count in self.counts.items():
