@@ -118,7 +118,7 @@ class ScriptAnalyzer:
         if issues_found:
             summary += "         Summary of Issues observed       \n"
             summary += "---------------------------------------------\n"
-            summary += "	   Check                   Count\n"
+            summary += "	    Check                   Count\n"
             
             for check, count in self.counts.items():
                 if count > 0:
