@@ -12,7 +12,6 @@ from email import encoders
 from robot.api import TestSuiteBuilder
 from encryption_utils import decrypt_data
 
-# Set global configuration values
 SMTP_SERVER = 'smtp-mail.outlook.com'
 SMTP_PORT = 587
 
@@ -24,6 +23,7 @@ class ScriptAnalyzer:
         self.sender_password = decrypt_data(encrypted_sender_password, encryption_key).decode()
         self.log_file = self.get_log_file_name()
         self.encryption_key = encryption_key
+        self.custom_keywords = []
         self.counts = {
             'human_error': 0,
             'missing_settings': 0,
@@ -37,7 +37,9 @@ class ScriptAnalyzer:
             'variable_naming': 0,
             'missing_setup': 0,
             'missing_teardown': 0,
+            'spacing_errors': 0,
         }
+        self.errors = []
         self.test_case_errors = {}
         logging.basicConfig(filename=self.log_file, level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s')
@@ -79,7 +81,6 @@ class ScriptAnalyzer:
             logging.error(f"Error during analysis: {str(e)}")
 
     def add_summary_to_log(self):
-        # Add errors to the log file
         with open(self.log_file, 'a') as log_file:
             log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
             log_file.write(f'------------------------------------------------------------------------------------------------------------\n')
@@ -109,6 +110,10 @@ class ScriptAnalyzer:
                 log_file.write(f"   Keywords_Issue :: Error Count - {keywords_issue_count}\n")
             if variable_naming_issue_count > 0:
                 log_file.write(f"   Variable_Naming_Issue :: Error Count - {variable_naming_issue_count}\n")
+            
+            # Log the total count of spacing errors
+            if self.counts['spacing_errors'] > 0:
+                log_file.write(f"   Spacing Issues :: Error Count - {self.counts['spacing_errors']}\n")
 
         summary = "---------------------------------------------\n"
         summary += "\n------------------------------------------------------------------------------------------------------------\n"
@@ -118,7 +123,7 @@ class ScriptAnalyzer:
         if issues_found:
             summary += "         Summary of Issues observed       \n"
             summary += "---------------------------------------------\n"
-            summary += "	    Check                   Count\n"
+            summary += "          Check                   Count\n"
             
             for check, count in self.counts.items():
                 if count > 0:
@@ -132,6 +137,201 @@ class ScriptAnalyzer:
         with open(self.log_file, 'a') as log_file:
             log_file.write(summary)
 
+    def check_spacing(self):
+        with open(self.script_path, 'r') as script_file:
+            lines = script_file.readlines()
+
+        line_number = 0
+        prev_line = ""
+        errors_on_current_line = set()
+        in_keywords_section = False  # Initialize the state to track if we are in the Keywords section
+
+        for line in lines:
+            line_number += 1
+            stripped_line = line.rstrip()
+
+            # Identify custom keywords in the Keywords section
+            if stripped_line.startswith("***") and "keywords" in stripped_line.lower():
+                in_keywords_section = True
+                continue
+
+            if stripped_line.startswith("***") and not "keywords" in stripped_line.lower():
+                in_keywords_section = False
+                continue
+
+            if in_keywords_section and re.match(r'^[a-zA-Z]', stripped_line):
+                self.custom_keywords.append(stripped_line.split()[0])
+                continue
+
+            # Skip comment lines
+            if stripped_line.startswith("#"):
+                continue
+
+            # Skip section headers (lines that start and end with '**')
+            if re.match(r'^\*\*.*\*\*$', stripped_line):
+                continue
+
+            errors_on_current_line.clear()
+
+            # Check if the line contains a keyword and skip it if it's a custom keyword
+            keyword = stripped_line.split(None, 1)[0] if stripped_line else ""
+            if keyword in self.custom_keywords:
+                continue
+
+            # Perform spacing checks
+            self.check_keyword_and_argument_spacing(line, line_number, errors_on_current_line)
+
+            # Check for non-standard comment block
+            self.check_non_standard_comment_block(line, line_number, errors_on_current_line)
+
+            # Check for indentation and tabs
+            self.check_indentation_and_tabs(line, line_number, errors_on_current_line)
+
+            # Check for operator spacing
+            self.check_operator_spacing(line, line_number, errors_on_current_line)
+
+            # Check for blank line before sections
+            self.check_blank_line_before_sections(stripped_line, prev_line, line_number, errors_on_current_line)
+
+            # Check for trailing spaces and line length
+            self.check_trailing_spaces_and_line_length(line, stripped_line, line_number, errors_on_current_line)
+
+            prev_line = line
+
+    def check_non_standard_comment_block(self, line, line_number, errors_on_current_line):
+        if "################" in line and "non_standard_comment" not in errors_on_current_line:
+            self.errors.append(f"Line {line_number}: Found non-standard comment block. Please remove this line.")
+            self.counts['spacing_errors'] += 1
+            errors_on_current_line.add("non_standard_comment")
+
+    def check_indentation_and_tabs(self, line, line_number, errors_on_current_line):
+        indentation_match = re.match(r'^( +)', line)
+        if '\t' in line and "tab_character" not in errors_on_current_line:
+            self.errors.append(f"Line {line_number}: Found tab character. Please use spaces instead.")
+            self.counts['spacing_errors'] += 1
+            errors_on_current_line.add("tab_character")
+        elif indentation_match and "indentation_error" not in errors_on_current_line:
+            indentation_length = len(indentation_match.group(1))
+            if indentation_length % 4 != 0:
+                self.errors.append(f"Line {line_number}: Indentation error. Expected a multiple of 4 spaces but found {indentation_length}.")
+                self.counts['spacing_errors'] += 1
+                errors_on_current_line.add("indentation_error")
+
+    # Update the check_keyword_and_argument_spacing method to skip custom keywords
+    def check_keyword_and_argument_spacing(self, line, line_number, errors_on_current_line):
+        stripped_line = line.strip()
+
+        # Skip comment lines
+        if stripped_line.startswith("#"):
+            return
+
+        # Extract the keyword and skip checks if it's a custom keyword
+        keyword = stripped_line.split(None, 1)[0] if stripped_line else ""
+        if keyword in self.custom_keywords:
+            return
+
+        # Define a list of built-in keywords that should be excluded from spacing checks
+        built_in_keywords = [
+            "Log", "Log To Console", "Run Keyword", "Run Keyword If", 
+            "Call Method", "Should Be Equal", "Should Be True", "Set Suite Variable", 
+            "Suite Setup", "Suite Teardown", "IF", "Check", "Resource", "ELSE IF"
+            # Add more built-in keywords as needed
+        ]
+
+        if re.match(r'^\s*\S+', line) and len(line.split()) > 1:
+            parts = line.split(None, 1)
+            keyword = parts[0]
+
+            # Skip the check if the line starts with a built-in keyword
+            if any(keyword.lower() == k.lower().split()[0] for k in built_in_keywords):
+                return
+
+            args = line[len(keyword):]
+
+            # Check for exactly 4 spaces between keyword and arguments
+            if not args.startswith(' ' * 4):
+                if "keyword_spacing" not in errors_on_current_line:
+                    self.errors.append(f"Line {line_number}: Expected exactly 4 spaces between keyword '{keyword}' and arguments.")
+                    self.counts['spacing_errors'] += 1
+                    errors_on_current_line.add("keyword_spacing")
+                # Skip the second check if the first one fails
+                return
+
+            # Check for consistent spacing between arguments only if the first check passed
+            args_parts = re.split(r'(\s+)', args.strip())
+            if len(args_parts) > 2:
+                for i in range(1, len(args_parts), 2):
+                    if len(args_parts[i]) != 4 and "argument_spacing" not in errors_on_current_line:
+                        self.errors.append(f"Line {line_number}: Inconsistent spacing between arguments after keyword '{keyword}'.")
+                        self.counts['spacing_errors'] += 1
+                        errors_on_current_line.add("argument_spacing")
+
+    def check_operator_spacing(self, line, line_number, errors_on_current_line):
+        stripped_line = line.strip()
+
+        # Skip comment lines
+        if stripped_line.startswith("#"):
+            return
+
+        # Define arithmetic operators
+        arithmetic_operators = r'[\+\-\*/=]'
+
+        # Check if the line contains an arithmetic operator but is not part of a Resource or Library import
+        if re.search(arithmetic_operators, line) and "operator_spacing" not in errors_on_current_line:
+            # Exclude lines that are Resource or Library import statements
+            if stripped_line.startswith("Resource") or stripped_line.startswith("Library"):
+                return
+
+            # Exclude cases where the operator is part of a string (e.g., a file path)
+            if re.search(r'[\'"].*[\+\-\*/=].*[\'"]|(\.\.\/)+|([\w\.-]+\/)+[\w\.-]+', line):
+                return
+
+    def check_operator_spacing(self, line, line_number, errors_on_current_line):
+        stripped_line = line.strip()
+
+        # Skip comment lines
+        if stripped_line.startswith("#"):
+            return
+
+        # Define arithmetic operators
+        arithmetic_operators = r'[\+\-\*/=]'
+
+        # Check if the line contains an arithmetic operator but is not part of a URL, file path, query parameter, or key-value pair in a dictionary
+        if re.search(arithmetic_operators, line) and "operator_spacing" not in errors_on_current_line:
+            # Exclude lines that contain URLs, file paths, query parameters, or key-value pairs
+            if re.search(r'https?://|\/[\w\./-]*[\?&]?|(\.\.\/)+[\w\./-]*', line) or re.search(r'[\'"].*[\+\-\*/=].*[\'"]', line):
+                return
+
+            # Check for missing spaces around arithmetic operators
+            if not re.search(r' [\+\-\*/=] ', line):
+                # Heuristic to check if it looks like a valid arithmetic expression
+                if re.search(r'\d+ *[\+\-\*/=] *\d+', line) or re.search(r'\w+ *[\+\-\*/=] *\w+', line):
+                    self.errors.append(f"Line {line_number}: Missing spaces around operators in expression.")
+                    self.counts['spacing_errors'] += 1
+                    errors_on_current_line.add("operator_spacing")
+
+        # Check for line length (if needed)
+        if len(stripped_line) > 120:
+            self.errors.append(f"Line {line_number}: Line exceeds 120 characters.")
+            self.counts['spacing_errors'] += 1
+            errors_on_current_line.add("line_length")
+
+    def check_blank_line_before_sections(self, stripped_line, prev_line, line_number, errors_on_current_line):
+        if re.match(r'^\*\*\* ', stripped_line) and "missing_blank_line" not in errors_on_current_line:
+            if prev_line.strip() and prev_line != "":
+                self.errors.append(f"Line {line_number}: Missing blank line before section or test case.")
+                self.counts['spacing_errors'] += 1
+                errors_on_current_line.add("missing_blank_line")
+
+    def check_trailing_spaces_and_line_length(self, line, stripped_line, line_number, errors_on_current_line):
+        if len(line.rstrip('\n')) != len(stripped_line) and "trailing_spaces" not in errors_on_current_line:
+            self.errors.append(f"Line {line_number}: Trailing spaces found.")
+            self.counts['spacing_errors'] += 1
+            errors_on_current_line.add("trailing_spaces")
+        elif len(stripped_line) > 200 and "line_length" not in errors_on_current_line:
+            self.errors.append(f"Line {line_number}: Line exceeds 200 characters.")
+            self.counts['spacing_errors'] += 1
+            errors_on_current_line.add("line_length")
 
     def analyze_robot_file(self):
         suite = TestSuiteBuilder().build(self.script_path)
@@ -160,7 +360,6 @@ class ScriptAnalyzer:
                 error_type = 'keyword_documentation' if type_ == "Keyword" else 'missing_documentation'
                 log_and_record_error(f' <{short_name}> :: {type_} lacks Documentation', error_type, short_name)
 
-        # Checking if the resource is available
         if not suite.resource:
             log_and_record_error(" <Settings> :: Missing *** Settings *** section in the Test Suite", 'missing_settings')
         else:
@@ -196,12 +395,12 @@ class ScriptAnalyzer:
 
             check_documentation(test.doc, test.name, "Test case")
             check_naming_convention(test.name, "Test case")
-            if not test.setup:
-                log_and_record_error(f' <{short_name}> :: Test case lacks a setup step', 'missing_setup', short_name)
-            if not test.teardown:
-                log_and_record_error(f' <{short_name}> :: Test case lacks a teardown step', 'missing_teardown', short_name)
             if not test.tags:
                 log_and_record_error(f' <{short_name}> :: Test case lacks tags', 'missing_tags', short_name)
+            if not test.setup:
+                log_and_record_error(f' <{short_name}> :: Test case lacks a setup step -- Please Implement if Required', 'missing_setup', short_name)
+            if not test.teardown:
+                log_and_record_error(f' <{short_name}> :: Test case lacks a teardown step -- Please Implement if Required', 'missing_teardown', short_name)
 
         # Processing keywords with documentation and naming convention checks
         for keyword in suite.resource.keywords:
@@ -211,6 +410,23 @@ class ScriptAnalyzer:
         # Processing variables and checking naming convention
         for var in suite.resource.variables:
             check_naming_convention(var.name, "Variable")
+
+        # Check for non-standard section headers
+        with open(self.script_path, 'r') as script_file:
+            lines = script_file.readlines()
+
+        for line_number, line in enumerate(lines, start=1):
+            stripped_line = line.rstrip()
+            # Skip comment lines
+            if stripped_line.startswith("#"):
+                continue
+
+            if re.match(r'^\*\* [A-Za-z ]+ \*\*$', stripped_line):
+                self.errors.append(f"Line {line_number}: Found non-standard section header. Use '*** Section ***' format.")
+                self.counts['variable_naming'] += 1
+
+        # Perform the spacing check
+        self.check_spacing()
 
     def send_email(self):
         # Create a multipart message
@@ -249,7 +465,8 @@ class ScriptAnalyzer:
             'missing_setup': 'TestCase: Setup Check',
             'missing_teardown': 'TestCase: Teardown Check',
             'variable_naming': 'TestCase: Variable Naming Check',
-            'keyword_documentation': 'Keywords: Documentation Check'
+            'keyword_documentation': 'Keywords: Documentation Check',
+            'spacing_errors': 'Spacing Issues'
         }
         
         for check, count in self.counts.items():
